@@ -129,26 +129,30 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
             if (tasksError) throw tasksError;
             console.log('✅ Fetched tasks:', tasksData?.length || 0);
 
-            // 2. Fetch Rewards (filter by user_id)
+            // 2. Fetch Rewards (no user_id filter - column doesn't exist yet)
             const { data: rewardsData, error: rewardsError } = await supabase
                 .from('rewards')
                 .select('*')
-                .eq('user_id', userId)
                 .order('created_at', { ascending: false });
 
-            if (rewardsError) throw rewardsError;
+            if (rewardsError) {
+                console.warn('⚠️ Rewards fetch error:', rewardsError);
+                // Don't throw, just continue with empty rewards
+            }
             console.log('✅ Fetched rewards:', rewardsData?.length || 0);
 
-            // 3. Fetch Active Sprint (filter by user_id)
+            // 3. Fetch Active Sprint (no user_id filter - column doesn't exist yet)
             const { data: sprintsData, error: sprintsError } = await supabase
                 .from('sprints')
                 .select('*')
-                .eq('user_id', userId)
                 .eq('state', 'active')
                 .limit(1)
                 .maybeSingle(); // Use maybeSingle to avoid 406 if no active sprint
 
-            if (sprintsError) throw sprintsError;
+            if (sprintsError) {
+                console.warn('⚠️ Sprint fetch error:', sprintsError);
+                // Don't throw, just continue with no sprint
+            }
             console.log('✅ Fetched sprint:', sprintsData ? 'Active sprint found' : 'No active sprint');
 
             // --- Transform Data ---
@@ -204,6 +208,14 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
     },
 
     addTask: async (title, complexity, contextTag) => {
+        const { userId } = get();
+
+        if (!userId) {
+            console.error('❌ Cannot add task: No user logged in');
+            set({ error: 'Please sign in to add tasks' });
+            return;
+        }
+
         try {
             const { data, error } = await supabase
                 .from('tasks')
@@ -211,12 +223,15 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
                     title,
                     complexity,
                     tags: [contextTag], // Store context as single tag for now
-                    status: 'pending'
+                    status: 'pending',
+                    user_id: userId, // ✅ Add user_id to link task to user
                 })
                 .select()
                 .single();
 
             if (error) throw error;
+
+            console.log('✅ Task created:', data);
 
             const newTask: Task = {
                 id: data.id,
@@ -229,7 +244,8 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
 
             set((state) => ({ tasks: [newTask, ...state.tasks] }));
         } catch (e: any) {
-            console.error('Add Task Error:', e);
+            console.error('❌ Add Task Error:', e);
+            set({ error: `Failed to add task: ${e.message}` });
         }
     },
 
