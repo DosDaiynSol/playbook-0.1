@@ -316,19 +316,59 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
     },
 
     createSprint: async (taskIds, rewardId) => {
+        const { userId, tasks } = get();
+
+        if (!userId) {
+            console.error('❌ Cannot create sprint: No user logged in');
+            set({ error: 'Please sign in to create sprints' });
+            return;
+        }
+
+        // ✅ VALIDATE TASK IDS
+        console.log('🔍 Validating task IDs for sprint:', taskIds);
+        console.log('🔍 Available tasks:', tasks.map(t => ({ id: t.id, title: t.title })));
+
+        const validTaskIds = taskIds.filter(id => tasks.some(t => t.id === id));
+        const invalidTaskIds = taskIds.filter(id => !tasks.some(t => t.id === id));
+
+        if (invalidTaskIds.length > 0) {
+            console.warn('⚠️ Invalid task IDs provided:', invalidTaskIds);
+            console.log('💡 These task IDs do not exist in the database');
+        }
+
+        // If no valid task IDs, use first N pending tasks
+        let finalTaskIds = validTaskIds;
+        if (finalTaskIds.length === 0) {
+            console.warn('⚠️ No valid task IDs! Auto-selecting pending tasks...');
+            const pendingTasks = tasks.filter(t => t.status === 'pending' && !t.sprintId);
+            finalTaskIds = pendingTasks.slice(0, Math.min(taskIds.length, 3)).map(t => t.id);
+            console.log('✅ Auto-selected tasks:', finalTaskIds);
+        }
+
+        if (finalTaskIds.length === 0) {
+            console.error('❌ No tasks available to create sprint');
+            set({ error: 'No pending tasks available for sprint' });
+            return;
+        }
+
+        console.log(`✅ Creating sprint with ${finalTaskIds.length} tasks`);
+
         try {
             // 1. Create Sprint
             const { data, error } = await supabase
                 .from('sprints')
                 .insert({
                     state: 'active',
-                    task_ids: taskIds,
-                    reward_id: rewardId || null
+                    task_ids: finalTaskIds, // Use validated IDs
+                    reward_id: rewardId || null,
+                    user_id: userId,
                 })
                 .select()
                 .single();
 
             if (error) throw error;
+
+            console.log('✅ Sprint created:', data);
 
             const newSprint: Sprint = {
                 id: data.id,
@@ -338,18 +378,21 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
                 startTime: new Date(data.start_time).getTime()
             };
 
-            // 2. Update Tasks to link to Sprint (Optional, but good for query)
+            // 2. Update Tasks to link to Sprint
             await supabase
                 .from('tasks')
                 .update({ sprint_id: newSprint.id })
-                .in('id', taskIds);
+                .in('id', finalTaskIds); // Use validated IDs
+
+            console.log('✅ Tasks linked to sprint');
 
             set((state) => ({
                 currentSprint: newSprint,
-                tasks: state.tasks.map(t => taskIds.includes(t.id) ? { ...t, sprintId: newSprint.id } : t)
+                tasks: state.tasks.map(t => finalTaskIds.includes(t.id) ? { ...t, sprintId: newSprint.id } : t)
             }));
-        } catch (e) {
-            console.error(e);
+        } catch (e: any) {
+            console.error('❌ Create Sprint Error:', e);
+            set({ error: `Failed to create sprint: ${e.message}` });
         }
     },
 
@@ -370,8 +413,16 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
     },
 
     addReward: async (reward) => {
-        // Optimistic UI not needed as much here, but we'll do standard flow
+        const { userId } = get();
+
+        if (!userId) {
+            console.error('❌ Cannot add reward: No user logged in');
+            set({ error: 'Please sign in to add rewards' });
+            return;
+        }
+
         try {
+            // Note: Not adding user_id to rewards table yet as column doesn't exist
             const { data, error } = await supabase
                 .from('rewards')
                 .insert({
@@ -384,6 +435,8 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
 
             if (error) throw error;
 
+            console.log('✅ Reward created:', data);
+
             set(s => ({
                 rewards: [...s.rewards, {
                     id: data.id,
@@ -394,8 +447,9 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
                     isLocked: true // Default
                 }]
             }));
-        } catch (e) {
-            console.error(e);
+        } catch (e: any) {
+            console.error('❌ Add Reward Error:', e);
+            set({ error: `Failed to add reward: ${e.message}` });
         }
     },
 

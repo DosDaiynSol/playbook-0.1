@@ -14,6 +14,14 @@ export const FocusScreen = () => {
     const { signOut } = useAuth();
     const { currentSprint, tasks, rewards, score, toggleTaskStatus, rerollTask } = useTaskStore();
 
+    // Debug logging
+    console.log('🔍 FocusScreen Debug:', {
+        hasSprint: !!currentSprint,
+        sprintState: currentSprint?.state,
+        sprintTaskIds: currentSprint?.taskIds,
+        totalTasks: tasks.length,
+    });
+
     const today = new Date();
     const monthName = today.toLocaleString('en-US', { month: 'long' });
     const dayNum = today.getDate();
@@ -38,9 +46,31 @@ export const FocusScreen = () => {
 
     const sprintTasks = useMemo(() => {
         if (!currentSprint) return [];
-        return currentSprint.taskIds
-            .map(id => tasks.find(t => t.id === id))
+
+        console.log('🔍 Sprint is looking for task IDs:', currentSprint.taskIds);
+        console.log('🔍 Available task IDs in database:', tasks.map(t => t.id));
+
+        const foundTasks = currentSprint.taskIds
+            .map(id => {
+                const task = tasks.find(t => t.id === id);
+                if (!task) {
+                    console.warn('❌ Task ID not found:', id);
+                }
+                return task;
+            })
             .filter((t): t is Task => t !== undefined);
+
+        console.log('📋 Sprint Tasks:', foundTasks.length, 'out of', currentSprint.taskIds.length);
+
+        if (foundTasks.length === 0 && currentSprint.taskIds.length > 0) {
+            console.error('🚨 TASK ID MISMATCH! Sprint has task IDs but none match the fetched tasks.');
+            console.log('💡 This usually means:');
+            console.log('   1. Sprint was created with wrong task IDs');
+            console.log('   2. Tasks were deleted from database');
+            console.log('   3. Sprint references tasks from different user');
+        }
+
+        return foundTasks;
     }, [currentSprint, tasks]);
 
     const timelineTasks = useMemo(() => {
@@ -134,16 +164,26 @@ export const FocusScreen = () => {
                     {/* Tasks List */}
                     <View style={styles.tasksList}>
                         <Text style={styles.tasksHeader}>Today's Focus</Text>
-                        {timelineTasks.map((task) => (
-                            <CompactTaskItem
-                                key={task.id}
-                                task={task}
-                                onToggle={handleCheckTask}
-                                onRegenerate={handleRegenTask}
-                                isActive={task.isActive}
-                                showTime={task.time}
-                            />
-                        ))}
+                        {timelineTasks.length === 0 ? (
+                            <View style={styles.emptyTasksState}>
+                                <Text style={styles.emptyTasksIcon}>📋</Text>
+                                <Text style={styles.emptyTasksText}>No tasks in sprint yet</Text>
+                                <Text style={styles.emptyTasksSubtext}>
+                                    Ask the assistant to deploy a sprint with tasks
+                                </Text>
+                            </View>
+                        ) : (
+                            timelineTasks.map((task) => (
+                                <CompactTaskItem
+                                    key={task.id}
+                                    task={task}
+                                    onToggle={handleCheckTask}
+                                    onRegenerate={handleRegenTask}
+                                    isActive={task.isActive}
+                                    showTime={task.time}
+                                />
+                            ))
+                        )}
                     </View>
 
                     <TouchableOpacity style={styles.addButton} activeOpacity={0.8}>
@@ -211,4 +251,8 @@ const styles = StyleSheet.create({
     initButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
     signOutButton: { marginTop: 16, padding: 16 },
     signOutText: { color: '#757575', fontSize: 14, fontWeight: '500' },
+    emptyTasksState: { paddingVertical: 40, alignItems: 'center' },
+    emptyTasksIcon: { fontSize: 40, marginBottom: 12 },
+    emptyTasksText: { fontSize: 16, fontWeight: '600', color: '#212121', marginBottom: 8 },
+    emptyTasksSubtext: { fontSize: 14, color: '#757575', textAlign: 'center', paddingHorizontal: 20 },
 });

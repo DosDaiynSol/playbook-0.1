@@ -74,22 +74,15 @@ const ThinkingIndicator = () => {
 
 export const ChatScreen = () => {
     const router = useRouter(); // For navigation to Focus Tab
+    // Store Data
+    const { addTask, addReward, createSprint, fetchInitialData, tasks, currentSprint, rewards } = useTaskStore();
     const [messages, setMessages] = useState<ActionLog[]>([]);
     const [input, setInput] = useState('');
     const [viewMode, setViewMode] = useState<'chat' | 'history'>('chat');
     const [loading, setLoading] = useState(false);
     const flatListRef = useRef<FlatList>(null);
 
-    // Store Data
-    const addTask = useTaskStore(state => state.addTask);
-    const addReward = useTaskStore(state => state.addReward);
-    const createSprint = useTaskStore(state => state.createSprint);
-    const { tasks, currentSprint, rewards } = useTaskStore();
-
     // --- Computed Logic for "Ready to Deploy" ---
-    // Rule: No active sprint + at least 3 pending tasks (that are not already in a completed sprint? 
-    // Actually, in this simple model, tasks are just pending/completed. 
-    // We grab the top 3 pending ones.)
     const pendingTasks = useMemo(() => tasks.filter(t => t.status === 'pending'), [tasks]);
     const isReadyToDeploy = !currentSprint && pendingTasks.length >= 3;
 
@@ -108,17 +101,34 @@ export const ChatScreen = () => {
     }, []);
 
     const processActionSideEffects = (actions: ActionLog[]) => {
+        console.log('🔄 Processing action side effects:', actions);
+
         actions.forEach(action => {
             if (action.type === 'TASK_CREATED' && action.metadata?.widgetData) {
                 const taskData = action.metadata.widgetData;
-                if (taskData.title && taskData.complexity) {
-                    addTask(taskData.title, taskData.complexity, taskData.tags || []);
+                console.log('📝 Creating task from AI:', taskData);
+
+                // Validate it's actually a task (has complexity, not cost)
+                if (taskData.title && taskData.complexity && !taskData.cost) {
+                    const contextTag = Array.isArray(taskData.tags) && taskData.tags.length > 0
+                        ? taskData.tags[0]
+                        : 'Any';
+
+                    addTask(taskData.title, taskData.complexity, contextTag).then(() => {
+                        console.log('✅ Task added, refreshing data...');
+                        fetchInitialData(); // Refresh to show in inventory
+                    });
+                } else {
+                    console.warn('⚠️ Invalid task data:', taskData);
                 }
             }
 
             if (action.type === 'REWARD_EARNED' && action.metadata?.widgetData) {
                 const rewardData = action.metadata.widgetData;
-                if (rewardData.title && rewardData.cost) {
+                console.log('🎁 Creating reward from AI:', rewardData);
+
+                // Validate it's actually a reward (has cost, tier, not complexity)
+                if (rewardData.title && rewardData.cost && !rewardData.complexity) {
                     addReward({
                         id: Date.now().toString(),
                         title: rewardData.title,
@@ -126,7 +136,40 @@ export const ChatScreen = () => {
                         tier: rewardData.tier || 'bronze',
                         isRedeemed: false,
                         isLocked: true
+                    }).then(() => {
+                        console.log('✅ Reward added, refreshing data...');
+                        fetchInitialData(); // Refresh to show in inventory
                     });
+                } else {
+                    console.warn('⚠️ Invalid reward data (might be a task):', rewardData);
+                    // If it has complexity, it's probably a task
+                    if (rewardData.complexity) {
+                        console.log('🔄 Re-routing as TASK instead of REWARD');
+                        const contextTag = Array.isArray(rewardData.tags) && rewardData.tags.length > 0
+                            ? rewardData.tags[0]
+                            : 'Any';
+
+                        addTask(rewardData.title, rewardData.complexity, contextTag).then(() => {
+                            console.log('✅ Task added (was mislabeled as reward)');
+                            fetchInitialData();
+                        });
+                    }
+                }
+            }
+
+            // Handle sprint deployment
+            if (action.type === 'SPRINT_DEPLOYED' && action.metadata?.widgetData) {
+                const sprintData = action.metadata.widgetData;
+                console.log('🚀 Deploying sprint from AI:', sprintData);
+
+                if (sprintData.taskIds && Array.isArray(sprintData.taskIds)) {
+                    const rewardId = sprintData.rewardId || null;
+                    createSprint(sprintData.taskIds, rewardId).then(() => {
+                        console.log('✅ Sprint deployed, refreshing data...');
+                        fetchInitialData(); // Refresh to show in focus tab
+                    });
+                } else {
+                    console.warn('⚠️ Invalid sprint data:', sprintData);
                 }
             }
         });

@@ -41,6 +41,7 @@ export type ActionType =
   | 'TASK_DELETED'
   | 'REWARD_CREATED'
   | 'REWARD_EARNED'
+  | 'SPRINT_DEPLOYED'
   | 'SYSTEM_MESSAGE'
   | 'USER_NOTE';
 
