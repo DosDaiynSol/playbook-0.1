@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TextInput, TouchableOpacity, Text, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TextInput, TouchableOpacity, Text, ActivityIndicator, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router'; // Add navigation
 import { ActionLog } from '../../types';
@@ -8,6 +8,69 @@ import { ChatService } from '../../services/api';
 import { useTaskStore } from '../../store/useTaskStore';
 import * as Haptics from 'expo-haptics';
 import { resetApp } from '../../utils/debug'; // Import debug tool
+
+// Beautiful Thinking Animation Component
+const ThinkingIndicator = () => {
+    const dot1 = useRef(new Animated.Value(0)).current;
+    const dot2 = useRef(new Animated.Value(0)).current;
+    const dot3 = useRef(new Animated.Value(0)).current;
+    const pulseAnim = useRef(new Animated.Value(1)).current;
+
+    useEffect(() => {
+        // Pulsing animation for the container
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(pulseAnim, {
+                    toValue: 1.05,
+                    duration: 1000,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(pulseAnim, {
+                    toValue: 1,
+                    duration: 1000,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
+
+        // Staggered dot animations
+        const createDotAnimation = (dot: Animated.Value, delay: number) => {
+            return Animated.loop(
+                Animated.sequence([
+                    Animated.delay(delay),
+                    Animated.timing(dot, {
+                        toValue: -8,
+                        duration: 400,
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(dot, {
+                        toValue: 0,
+                        duration: 400,
+                        useNativeDriver: true,
+                    }),
+                ])
+            );
+        };
+
+        createDotAnimation(dot1, 0).start();
+        createDotAnimation(dot2, 200).start();
+        createDotAnimation(dot3, 400).start();
+    }, []);
+
+    return (
+        <Animated.View style={[styles.thinkingContainer, { transform: [{ scale: pulseAnim }] }]}>
+            <View style={styles.thinkingContent}>
+                <Text style={styles.thinkingText}>AI is thinking</Text>
+                <View style={styles.dotsContainer}>
+                    <Animated.View style={[styles.dot, { transform: [{ translateY: dot1 }] }]} />
+                    <Animated.View style={[styles.dot, { transform: [{ translateY: dot2 }] }]} />
+                    <Animated.View style={[styles.dot, { transform: [{ translateY: dot3 }] }]} />
+                </View>
+            </View>
+            <View style={styles.thinkingGlow} />
+        </Animated.View>
+    );
+};
 
 export const ChatScreen = () => {
     const router = useRouter(); // For navigation to Focus Tab
@@ -69,11 +132,13 @@ export const ChatScreen = () => {
         });
     };
 
+    // В ChatScreen.tsx замени handleSend на это:
+
     const handleSend = async () => {
         if (!input.trim()) return;
 
         const userMsg: ActionLog = {
-            id: Date.now().toString() + Math.random().toString(36).substring(7),
+            id: Date.now().toString(),
             type: 'USER_NOTE',
             content: input,
             timestamp: Date.now()
@@ -84,14 +149,30 @@ export const ChatScreen = () => {
         setLoading(true);
 
         try {
-            const responseActions = await ChatService.sendMessage(userMsg.content);
-            setMessages(prev => [...prev, ...responseActions]);
-            processActionSideEffects(responseActions);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            console.log("Отправка запроса...");
+            const rawResponse = await ChatService.sendMessage(userMsg.content);
+
+            console.log("🔥 ОТВЕТ ОТ N8N:", JSON.stringify(rawResponse, null, 2));
+
+            // Проверка: Это массив?
+            if (Array.isArray(rawResponse)) {
+                setMessages(prev => [...prev, ...rawResponse]);
+                processActionSideEffects(rawResponse);
+            }
+            // Проверка: Может это объект с полем data?
+            else if (rawResponse && rawResponse.data && Array.isArray(rawResponse.data)) {
+                console.log("⚠️ Пришел объект { data: [] }, исправляем...");
+                setMessages(prev => [...prev, ...rawResponse.data]);
+                processActionSideEffects(rawResponse.data);
+            }
+            else {
+                console.error("❌ ОШИБКА ФОРМАТА: Пришел не массив", rawResponse);
+                alert("Ошибка: Сервер вернул неверный формат данных. См. консоль.");
+            }
 
         } catch (error) {
-            console.error(error);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            console.error("❌ ОШИБКА СЕТИ:", error);
+            alert("Ошибка сети. Проверь консоль.");
         } finally {
             setLoading(false);
         }
@@ -160,6 +241,7 @@ export const ChatScreen = () => {
                         data={messages}
                         keyExtractor={(item, index) => item.id || index.toString()}
                         renderItem={({ item }) => <ChatWidgetFactory item={item} />}
+                        ListFooterComponent={loading ? <ThinkingIndicator /> : null}
                         contentContainerStyle={styles.listContent}
                         onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
                     />
@@ -343,5 +425,53 @@ const styles = StyleSheet.create({
     },
     activeSegmentText: {
         color: '#1C1C1E',
+    },
+    // Thinking Indicator
+    thinkingContainer: {
+        marginHorizontal: 20,
+        marginVertical: 12,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 20,
+        padding: 16,
+        shadowColor: '#007AFF',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 4,
+        borderWidth: 1,
+        borderColor: '#E5E5EA',
+    },
+    thinkingContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    thinkingText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#007AFF',
+        marginRight: 8,
+        letterSpacing: 0.5,
+    },
+    dotsContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    dot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: '#007AFF',
+    },
+    thinkingGlow: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        borderRadius: 20,
+        backgroundColor: '#007AFF',
+        opacity: 0.05,
     }
 });

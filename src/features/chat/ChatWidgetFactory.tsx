@@ -112,10 +112,13 @@ const styles = StyleSheet.create({
         borderRadius: 16,
         borderBottomLeftRadius: 2,
         maxWidth: '80%',
+        flexShrink: 1,
     },
     botText: {
         color: '#000',
         fontSize: 16,
+        flexWrap: 'wrap',
+        flexShrink: 1,
     },
     systemMessage: {
         alignItems: 'center',
@@ -160,6 +163,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#333',
         marginBottom: 4,
+        flexWrap: 'wrap',
     },
     rewardBubble: {
         backgroundColor: '#FFD70020', // Light gold
