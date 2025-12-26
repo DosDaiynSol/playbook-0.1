@@ -127,34 +127,39 @@ export const ChatScreen = () => {
                 const rewardData = action.metadata.widgetData;
                 console.log('🎁 Creating reward from AI:', rewardData);
 
-                // Validate it's actually a reward (has cost, tier, not complexity)
-                if (rewardData.title && rewardData.cost && !rewardData.complexity) {
-                    addReward({
-                        id: Date.now().toString(),
+                // ✅ SMART CONVERSION: Handle AI sending task structure for rewards
+                let finalRewardData;
+                if (rewardData.cost && !rewardData.complexity) {
+                    // Proper reward structure
+                    finalRewardData = {
                         title: rewardData.title,
                         cost: rewardData.cost,
-                        tier: rewardData.tier || 'bronze',
-                        isRedeemed: false,
-                        isLocked: true
-                    }).then(() => {
-                        console.log('✅ Reward added, refreshing data...');
-                        fetchInitialData(); // Refresh to show in inventory
-                    });
+                        tier: rewardData.tier || 'bronze'
+                    };
+                } else if (rewardData.complexity) {
+                    // AI sent task structure - convert it
+                    console.log('🔄 Converting task-like structure to reward');
+                    finalRewardData = {
+                        title: rewardData.title,
+                        cost: rewardData.complexity * 3, // Convert complexity to cost (1→3, 2→6, 3→9)
+                        tier: rewardData.complexity === 3 ? 'gold' : rewardData.complexity === 2 ? 'silver' : 'bronze'
+                    };
                 } else {
-                    console.warn('⚠️ Invalid reward data (might be a task):', rewardData);
-                    // If it has complexity, it's probably a task
-                    if (rewardData.complexity) {
-                        console.log('🔄 Re-routing as TASK instead of REWARD');
-                        const contextTag = Array.isArray(rewardData.tags) && rewardData.tags.length > 0
-                            ? rewardData.tags[0]
-                            : 'Any';
-
-                        addTask(rewardData.title, rewardData.complexity, contextTag).then(() => {
-                            console.log('✅ Task added (was mislabeled as reward)');
-                            fetchInitialData();
-                        });
-                    }
+                    console.warn('⚠️ Invalid reward data:', rewardData);
+                    return; // Skip this reward
                 }
+
+                addReward({
+                    // ✅ Let Supabase generate UUID
+                    title: finalRewardData.title,
+                    cost: finalRewardData.cost,
+                    tier: finalRewardData.tier,
+                    isRedeemed: false,
+                    isLocked: true
+                } as any).then(() => {
+                    console.log('✅ Reward added, refreshing data...');
+                    fetchInitialData();
+                });
             }
 
             // Handle sprint deployment

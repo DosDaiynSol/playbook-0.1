@@ -24,6 +24,7 @@ interface PlaybookState {
 
     createSprint: (taskIds: string[], rewardId: string) => Promise<void>;
     completeSprint: () => Promise<void>;
+    checkSprintCompletion: () => Promise<void>; // ✅ NEW: Check if all tasks done
 
     addReward: (reward: Reward) => Promise<void>;
     redeemReward: (rewardId: string) => Promise<void>;
@@ -304,6 +305,9 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
                 .eq('id', taskId);
 
             if (error) throw error;
+
+            // ✅ Check if sprint is now complete
+            await get().checkSprintCompletion();
         } catch (e) {
             console.error(e);
             // Revert would be complex here, assuming success for prototype speed
@@ -409,6 +413,78 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
                 .eq('id', currentSprint.id);
         } catch (e) {
             console.error(e);
+        }
+    },
+
+    // ✅ NEW: Check if all tasks are done and unlock reward
+    checkSprintCompletion: async () => {
+        const { currentSprint, tasks, rewards } = get();
+
+        if (!currentSprint || currentSprint.state !== 'active') {
+            return; // No active sprint
+        }
+
+        // Get tasks in this sprint
+        const sprintTasks = tasks.filter(t => currentSprint.taskIds.includes(t.id));
+
+        if (sprintTasks.length === 0) {
+            console.warn('⚠️ Sprint has no tasks');
+            return;
+        }
+
+        // Check if ALL tasks are completed
+        const allCompleted = sprintTasks.every(t => t.status === 'completed');
+
+        console.log(`🔍 Sprint completion check: ${sprintTasks.filter(t => t.status === 'completed').length}/${sprintTasks.length} done`);
+
+        if (allCompleted) {
+            console.log('🎉 ALL TASKS COMPLETED! Unlocking reward...');
+
+            // If sprint doesn't have a reward, assign one
+            if (!currentSprint.rewardId) {
+                console.log('🔍 No reward assigned, selecting one...');
+
+                // Find locked reward to assign
+                const lockedReward = rewards.find(r => r.isLocked && !r.isRedeemed);
+
+                if (lockedReward) {
+                    // Link reward to sprint
+                    await supabase
+                        .from('sprints')
+                        .update({ reward_id: lockedReward.id })
+                        .eq('id', currentSprint.id);
+
+                    // Update local state
+                    set({
+                        currentSprint: {
+                            ...currentSprint,
+                            rewardId: lockedReward.id
+                        },
+                        rewards: rewards.map(r =>
+                            r.id === lockedReward.id
+                                ? { ...r, isLocked: false } // Unlock it!
+                                : r
+                        )
+                    });
+
+                    console.log('✅ Reward unlocked:', lockedReward.title);
+                } else {
+                    console.warn('⚠️ No locked rewards available');
+                }
+            } else {
+                // Reward already assigned, just unlock it
+                const reward = rewards.find(r => r.id === currentSprint.rewardId);
+                if (reward && reward.isLocked) {
+                    set({
+                        rewards: rewards.map(r =>
+                            r.id === currentSprint.rewardId
+                                ? { ...r, isLocked: false } // Unlock!
+                                : r
+                        )
+                    });
+                    console.log('✅ Reward unlocked:', reward.title);
+                }
+            }
         }
     },
 
