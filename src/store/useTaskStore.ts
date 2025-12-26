@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { Task, Sprint, Reward, TaskComplexity, ContextTag } from '../types';
+import type { Session } from '@supabase/supabase-js';
 
 interface PlaybookState {
     tasks: Task[];
@@ -9,8 +10,11 @@ interface PlaybookState {
     score: number;
     isLoading: boolean;
     error: string | null;
+    session: Session | null;
+    userId: string | null;
 
     // Actions
+    initialize: () => void;
     fetchInitialData: () => Promise<void>;
 
     addTask: (title: string, complexity: TaskComplexity, contextTag: ContextTag) => Promise<void>;
@@ -26,6 +30,7 @@ interface PlaybookState {
 
     // New Actions from Spec
     rerollTask: (oldTaskId: string) => Promise<void>;
+    signInAnonymously: () => Promise<void>;
 }
 
 export const useTaskStore = create<PlaybookState>((set, get) => ({
@@ -35,35 +40,116 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
     score: 0,
     isLoading: false,
     error: null,
+    session: null,
+    userId: null,
+
+    // Initialize auth listener
+    initialize: () => {
+        console.log('🔧 Initializing auth listener...');
+
+        // Get initial session
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            console.log('📱 Initial session:', session?.user?.id || 'NO USER');
+            set({
+                session,
+                userId: session?.user?.id || null
+            });
+
+            // Fetch data if we have a session
+            if (session) {
+                get().fetchInitialData();
+            }
+        });
+
+        // Listen to auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            console.log('🔄 Auth state changed:', _event, session?.user?.id || 'NO USER');
+            set({
+                session,
+                userId: session?.user?.id || null
+            });
+
+            // Auto-fetch data when user logs in
+            if (session && _event === 'SIGNED_IN') {
+                get().fetchInitialData();
+            }
+        });
+
+        return () => {
+            subscription?.unsubscribe();
+        };
+    },
+
+    signInAnonymously: async () => {
+        console.log('🔐 Attempting anonymous sign in...');
+        try {
+            const { data, error } = await supabase.auth.signInAnonymously();
+
+            if (error) {
+                console.error('❌ Anonymous sign in error:', error);
+                set({ error: error.message });
+                return;
+            }
+
+            console.log('✅ Anonymous sign in successful:', data.user?.id);
+            set({
+                session: data.session,
+                userId: data.user?.id || null,
+                error: null
+            });
+
+            // Fetch data after sign in
+            await get().fetchInitialData();
+        } catch (e: any) {
+            console.error('❌ Exception during anonymous sign in:', e);
+            set({ error: e.message });
+        }
+    },
 
     fetchInitialData: async () => {
         set({ isLoading: true, error: null });
+
+        const { userId } = get();
+        console.log('📊 Fetching data for user:', userId || 'NO USER');
+
+        if (!userId) {
+            console.warn('⚠️ No user ID available, skipping fetch');
+            set({ isLoading: false, error: 'No user authenticated' });
+            return;
+        }
+
         try {
-            // 1. Fetch Tasks
+            // 1. Fetch Tasks (filter by user_id)
             const { data: tasksData, error: tasksError } = await supabase
                 .from('tasks')
                 .select('*')
+                .eq('user_id', userId)
                 .order('created_at', { ascending: false });
 
             if (tasksError) throw tasksError;
+            console.log('✅ Fetched tasks:', tasksData?.length || 0);
 
-            // 2. Fetch Rewards
+            // 2. Fetch Rewards (filter by user_id)
             const { data: rewardsData, error: rewardsError } = await supabase
                 .from('rewards')
                 .select('*')
+                .eq('user_id', userId)
                 .order('created_at', { ascending: false });
 
             if (rewardsError) throw rewardsError;
+            console.log('✅ Fetched rewards:', rewardsData?.length || 0);
 
-            // 3. Fetch Active Sprint
+            // 3. Fetch Active Sprint (filter by user_id)
             const { data: sprintsData, error: sprintsError } = await supabase
                 .from('sprints')
                 .select('*')
+                .eq('user_id', userId)
                 .eq('state', 'active')
                 .limit(1)
                 .maybeSingle(); // Use maybeSingle to avoid 406 if no active sprint
 
             if (sprintsError) throw sprintsError;
+            console.log('✅ Fetched sprint:', sprintsData ? 'Active sprint found' : 'No active sprint');
 
             // --- Transform Data ---
             const tasks: Task[] = (tasksData || []).map((t: any) => ({

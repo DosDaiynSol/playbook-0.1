@@ -4,10 +4,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTaskStore } from '../../store/useTaskStore';
 
 export const BackstageScreen = () => {
-    const { tasks, rewards, addTask, deleteTask, addReward } = useTaskStore();
+    const { tasks, rewards, addTask, deleteTask, addReward, currentSprint } = useTaskStore();
     const [viewMode, setViewMode] = useState<'tasks' | 'rewards'>('tasks');
 
-    const pendingTasks = tasks.filter(t => t.status === 'pending');
+    // Filter pending tasks that are NOT in the active sprint (true backlog)
+    const pendingTasks = tasks.filter(t => {
+        const isPending = t.status === 'pending';
+        const notInSprint = !currentSprint || !currentSprint.taskIds.includes(t.id);
+        return isPending && notInSprint;
+    });
 
     return (
         <SafeAreaView style={styles.container}>

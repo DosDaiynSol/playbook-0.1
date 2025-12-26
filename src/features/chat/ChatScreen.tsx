@@ -150,7 +150,7 @@ export const ChatScreen = () => {
 
         try {
             console.log("Отправка запроса...");
-            const rawResponse = await ChatService.sendMessage(userMsg.content);
+            const rawResponse: any = await ChatService.sendMessage(userMsg.content);
 
             console.log("🔥 ОТВЕТ ОТ N8N:", JSON.stringify(rawResponse, null, 2));
 
