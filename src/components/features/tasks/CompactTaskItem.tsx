@@ -12,7 +12,7 @@ interface CompactTaskItemProps {
     showTime?: string;
 }
 
-export const CompactTaskItem: React.FC<CompactTaskItemProps> = ({
+export const CompactTaskItem = React.memo<CompactTaskItemProps>(({
     task,
     onToggle,
     onRegenerate,
@@ -97,7 +97,17 @@ export const CompactTaskItem: React.FC<CompactTaskItemProps> = ({
             </View>
         </Animated.View>
     );
-};
+}, (prevProps, nextProps) => {
+    // ✅ Custom comparison: only re-render if these props changed
+    return (
+        prevProps.task.id === nextProps.task.id &&
+        prevProps.task.status === nextProps.task.status &&
+        prevProps.task.title === nextProps.task.title &&
+        prevProps.task.complexity === nextProps.task.complexity &&
+        prevProps.isActive === nextProps.isActive &&
+        prevProps.showTime === nextProps.showTime
+    );
+});
 
 const styles = StyleSheet.create({
     container: {

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { Task, Sprint, Reward, TaskComplexity, ContextTag } from '../types';
 import type { Session } from '@supabase/supabase-js';
+import { taskService } from '../services/taskService';
 
 interface PlaybookState {
     tasks: Task[];
@@ -283,9 +284,12 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
 
         const isCompleting = task.status !== 'completed';
         const newStatus = isCompleting ? 'completed' : 'pending';
-        const completedAt = isCompleting ? new Date().toISOString() : null; // DB expects ISO string or null
+        const completedAt = isCompleting ? new Date().toISOString() : null;
 
-        // Optimistic Update
+        // ✅ OPTIMISTIC UPDATE - Update UI immediately
+        const previousTasks = get().tasks;
+        const previousScore = get().score;
+
         set(s => ({
             tasks: s.tasks.map(t => t.id === taskId ? {
                 ...t,
@@ -296,21 +300,19 @@ export const useTaskStore = create<PlaybookState>((set, get) => ({
         }));
 
         try {
-            const { error } = await supabase
-                .from('tasks')
-                .update({
-                    status: newStatus,
-                    completed_at: completedAt
-                })
-                .eq('id', taskId);
-
-            if (error) throw error;
+            // Call service layer instead of  direct supabase
+            await taskService.toggleTaskStatus(taskId, task.status);
 
             // ✅ Check if sprint is now complete
             await get().checkSprintCompletion();
         } catch (e) {
-            console.error(e);
-            // Revert would be complex here, assuming success for prototype speed
+            console.error('❌ Toggle task failed, rolling back:', e);
+
+            // ✅ ROLLBACK - Revert to previous state
+            set({
+                tasks: previousTasks,
+                score: previousScore
+            });
         }
     },
 
